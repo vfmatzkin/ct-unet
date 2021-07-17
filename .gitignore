@@ -7,7 +7,7 @@ __pycache__/
 src_archive/
 /venv27/
 .trash/
-/cfg/old_names/
+/ctunet/cfg/old_names/
 runs/
 datasets/
 models/
@@ -17,4 +17,4 @@ logits/
 splits/
 dist/
 /env/
-/headctools.egg-info/
+/ctunet.egg-info/

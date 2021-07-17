@@ -1,3 +1,12 @@
+# This file is part of the
+#   ctunet Project (https://github.com/vfmatzkin/ctunet).
+# Copyright (c) 2021, Franco Matzkin
+# License: MIT
+#   Full Text: https://github.com/vfmatzkin/ctunet/blob/main/LICENSE
+
+""" ctunet trainer class."""
+import sys
+
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
@@ -55,9 +64,9 @@ class Model:
             # PATHS
             "single_file": None,
             "workspace_path": None,
-            "train_files_csv": None,  # Datasets csv
-            "validation_files_csv": None,
-            "test_files_csv": None,
+            "train_files": None,  # Datasets csv
+            "validation_files": None,
+            "test_files": None,
             'tensorboard_run_path': None,
             # MISC
             "autosave_epochs": None,  # Frequency of model checkpoint saving.
@@ -123,7 +132,7 @@ class Model:
             self.test()
 
     @staticmethod
-    def get_dataloader(dataset_class, dataset_csv, batch_size=1,
+    def get_dataloader(dataset_class, dataset, batch_size=1,
                        pin_memory=True, shuffle=True, n_workers=0,
                        single_file=None):
         """
@@ -136,7 +145,8 @@ class Model:
 
         :param dataset_class: Class inherited of torch.utils.image.Dataset,
         that is used for creating the DataLader.
-        :param dataset_csv: Path of the CSV.
+        :param dataset: Path of the dataset folder or CSV file listing the
+        files.
         :param batch_size: Batch size used in the DataLoader.
         :param pin_memory: Dataloader'sh pin_memory flag, for loading the image
         into CUDA. This lets your DataLoader allocate the samples in
@@ -147,7 +157,7 @@ class Model:
         predict the csv.
         :return:
         """
-        dataset = dataset_class(dataset_csv, "", single_file=single_file)
+        dataset = dataset_class(dataset, "", single_file=single_file)
 
         r_sampler = torch.utils.data.RandomSampler(
             dataset, replacement=True, num_samples=min(92, len(dataset))
@@ -177,7 +187,7 @@ class Model:
         if self.params["train_flag"]:
             self.data["train_dataloader"] = self.get_dataloader(
                 dataset_class=dataset_c_train,
-                dataset_csv=self.params["train_files_csv"],
+                dataset=self.params["train_files_csv"],
                 batch_size=self.params["batch_size"],
                 pin_memory=pin_mem,
                 n_workers=self.params["n_workers"],
@@ -185,7 +195,7 @@ class Model:
             )
             self.data["validation_dataloader"] = self.get_dataloader(
                 dataset_class=dataset_c_train,
-                dataset_csv=self.params["validation_files_csv"],
+                dataset=self.params["validation_files_csv"],
                 batch_size=self.params["batch_size"],
                 n_workers=self.params["n_workers"],
                 shuffle=False
@@ -194,7 +204,7 @@ class Model:
         if self.params["test_flag"]:
             self.data["test_dataloader"] = self.get_dataloader(
                 dataset_class=dataset_c_test,
-                dataset_csv=self.params["test_files_csv"],
+                dataset=self.params["test_files_csv"],
                 batch_size=1,
                 shuffle=False,
                 single_file=self.params['single_file']
@@ -278,7 +288,7 @@ class Model:
         elif self.models["main"] is None and self.params["resume_model"]:
             self.initialize_models()
 
-        if self.params["test_flag"] and not self.params["test_files_csv"] \
+        if self.params["test_flag"] and not self.params["test_files"] \
                 and not self.params["single_file"]:
             print("No csv provided for testing")
         elif self.params["test_flag"] and self.params["single_file"]:
@@ -286,7 +296,7 @@ class Model:
         else:  # Regular inference
             print(
                 "Images to test: ",
-                os.path.split(self.params["test_files_csv"])[0],
+                os.path.split(self.params["test_files"])[0],
             )
             utils.print_params_dict(self.params)  # Print the params dictionary
             self.forward_pass("test", self.data["test_dataloader"])
@@ -371,7 +381,8 @@ class Model:
         and plots. The model predictions in the test phase will be always
         saved in a subfolder of the input images pred_folder.
         """
-
+        if not self.params['workspace_path']:
+            raise AttributeError('workspace_path not defined in the ini file.')
         wsp = self.params['workspace_path'] = \
             os.path.expanduser(self.params['workspace_path'])
         utils.veri_folder(wsp)
@@ -446,7 +457,7 @@ class Model:
         """
         if load_out:  # Load the output file.
             self.models["main"] = self.load_model(self.params["model_path"])
-        elif self.params["resume_model"] != "":  # Load this model from path
+        elif self.params["resume_model"] not in ["", None]:
             self.models["main"] = self.load_model(self.params['resume_model'])
         else:  # Initialize a new model
             self.models["main"] = self.new_model()
@@ -479,4 +490,5 @@ class Model:
 
 
 if __name__ == "__main__":
-    Model("cfg/FlapRecSP304_224_2O.ini")
+    if len(sys.argv) > 1:
+        Model([sys.argv[1]])

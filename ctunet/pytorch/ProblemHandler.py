@@ -1,8 +1,8 @@
 # This file is part of the
-#   headCTools Project (https://gitlab.com/matzkin/headctools).
+#   ctunet Project (https://github.com/vfmatzkin/ctunet).
 # Copyright (c) 2021, Franco Matzkin
 # License: MIT
-#   Full Text: https://gitlab.com/matzkin/headctools/-/blob/master/LICENSE
+#   Full Text: https://github.com/vfmatzkin/ctunet/blob/main/LICENSE
 
 """ ProblemHandler class and some usages.
 
@@ -13,9 +13,8 @@ samples keeps defined in Dataset subclasses. """
 from abc import ABC, abstractmethod
 
 import torch.nn as nn
-import torch.nn.functional as F
+from torch.nn.functional import softmax
 
-from .. import utilities as utils
 from .dataset_classes import *
 
 
@@ -220,8 +219,8 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
         full_skull_t, flap_t = target
 
         if model.params["dice_lambda"] or model.params["save_dice_plots"]:
-            full_skull_p_sm = F.softmax(full_skull_p, dim=1)
-            flap_p_sm = F.softmax(flap_p, dim=1)
+            full_skull_p_sm = softmax(full_skull_p, dim=1)
+            flap_p_sm = softmax(flap_p, dim=1)
 
         lm = model.losses_and_metrics
 

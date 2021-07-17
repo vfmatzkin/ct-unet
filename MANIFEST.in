@@ -1,1 +1,1 @@
-recursive-include headctools/assets/download *.csv
+recursive-include cfg *.ini
