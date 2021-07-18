@@ -6,14 +6,15 @@
 
 """ ctunet trainer class."""
 import sys
+from collections import OrderedDict
+from shutil import copyfile
 
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from .ProblemHandler import *
 from .models import *
-from collections import OrderedDict
-from torch.utils.data import DataLoader
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -37,6 +38,13 @@ class Model:
 
         if cfg_file is None and (params is None):
             print("No configuration file provided.")
+
+        # CLI gives list of args so in this case take the first element
+        cfg_file = cfg_file[0] if type(cfg_file) is list else cfg_file
+        if cfg_file and not os.path.exists(cfg_file):  # Check if cfg exists
+            raise FileNotFoundError(
+                f"The configuration file does not exists ({cfg_file})."
+            )
 
         self.params = {  # Initialize required params by defalut
             # DEFAULT
@@ -64,9 +72,9 @@ class Model:
             # PATHS
             "single_file": None,
             "workspace_path": None,
-            "train_files": None,  # Datasets csv
-            "validation_files": None,
-            "test_files": None,
+            "train_files_csv": None,  # Datasets csv
+            "validation_files_csv": None,
+            "test_files_csv": None,
             'tensorboard_run_path': None,
             # MISC
             "autosave_epochs": None,  # Frequency of model checkpoint saving.
@@ -262,7 +270,7 @@ class Model:
 
         # Save the model parameters alongside the model if is first epoch
         if cfg_file and epoch == 1:
-            utils.copyfile(cfg_file, path.replace(".pt", "_params.ini"))
+            copyfile(cfg_file, path.replace(".pt", "_params.ini"))
 
         if save_checkpoint:
             dir_chk = os.path.join(dir_m, 'checkpoints')
@@ -288,7 +296,7 @@ class Model:
         elif self.models["main"] is None and self.params["resume_model"]:
             self.initialize_models()
 
-        if self.params["test_flag"] and not self.params["test_files"] \
+        if self.params["test_flag"] and not self.params["test_files_csv"] \
                 and not self.params["single_file"]:
             print("No csv provided for testing")
         elif self.params["test_flag"] and self.params["single_file"]:
@@ -296,7 +304,7 @@ class Model:
         else:  # Regular inference
             print(
                 "Images to test: ",
-                os.path.split(self.params["test_files"])[0],
+                os.path.split(self.params["test_files_csv"])[0],
             )
             utils.print_params_dict(self.params)  # Print the params dictionary
             self.forward_pass("test", self.data["test_dataloader"])
@@ -333,7 +341,7 @@ class Model:
             #     target.requires_grad_()
 
             # I do this here because I need an img sample for getting FLOPS n.
-            #if c_op and (phase == "train" and self.current_epoch == 1 and self.params[
+            # if c_op and (phase == "train" and self.current_epoch == 1 and self.params[
             #    "show_model_summary"]) or (phase == "test" and batch_idx == 1):
             #    print(summary(self.models["main"], input_img))
             #    print(f'\nFLOPS: {count_ops(self.models["main"], input_img)}')
@@ -487,6 +495,12 @@ class Model:
                 momentum=self.params["momentum"],
                 weight_decay=self.params["weight_decay"],
             )
+
+
+def cli():
+    """Run the headctools CLI interface."""
+    if len(sys.argv) > 1:
+        Model([sys.argv[1]])
 
 
 if __name__ == "__main__":

@@ -28,4 +28,5 @@ setup(
     packages=["ctunet", "ctunet.pytorch"],
     install_requires=REQUIREMENTS,
     include_package_data=True,
+    entry_points={"console_scripts": ["ctunet=ctunet.pytorch.train_test:cli"]},
 )
