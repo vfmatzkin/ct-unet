@@ -220,7 +220,8 @@ class FlapRecWShapePrior2OTrainDataset(NiftiImageDataset):
                                                                single_file)
         self.already_augmented_id = already_augmented_id
         self.transform = fr_transform
-        self.atlas_path = os.path.expanduser(atlas_path)
+        self.atlas_path = None if atlas_path == '' else os.path.expanduser(
+            atlas_path)
         self.append_full = append_full
 
     def __getitem__(self, idx):
@@ -249,10 +250,25 @@ class FlapRecWShapePrior2OTrainDataset(NiftiImageDataset):
                       'target': target,
                       'filepath': img_name}
 
-        sample['image'] = load_atlas_and_append_at_axis(self.atlas_path,
-                                                        sample['image'], 0)
+        if self.atlas_path:
+            sample['image'] = load_atlas_and_append_at_axis(self.atlas_path,
+                                                            sample['image'], 0)
 
         return sample
+
+
+class FlapRec2OTrainDataset(FlapRecWShapePrior2OTrainDataset):
+    """ Flap Reconstruction without Shape Priors and with double output.
+
+    It inherits the Shape Prior class, but discarding its file path, avoiding
+    the atlas concatenation.
+
+    """
+
+    def __init__(self, csv_file=None, root_dir="", single_file=None):
+        super(FlapRec2OTrainDataset, self).__init__(csv_file, root_dir,
+                                                    single_file=single_file,
+                                                    atlas_path='')
 
 
 class FlapRecWShapePriorTrainDataset(FlapRecWShapePrior2OTrainDataset):

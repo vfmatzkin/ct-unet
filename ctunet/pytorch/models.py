@@ -276,6 +276,13 @@ class UNet4b2i3o(UNet):
         super(UNet4b2i3o, self).__init__(i_size=7, input_channels=2,
                                          out_channels=3,
                                          use_checkpoint=True)
+class UNet4b1i3o(UNet):
+    """ Three-channel output UNet without Shape Priors. """
+
+    def __init__(self):
+        super(UNet4b1i3o, self).__init__(i_size=7, input_channels=1,
+                                         out_channels=3,
+                                         use_checkpoint=True)
 
 
 class UNetSP(UNet4b2i3o):
@@ -299,6 +306,27 @@ class UNetSP(UNet4b2i3o):
     def forward(self, x):
         # U-Net forward pass
         backg_flap_fullsk = super(UNetSP, self).forward(x)
+        backg = backg_flap_fullsk[:, 0:1]
+        flap = backg_flap_fullsk[:, 1:2]
+        fullsk = backg_flap_fullsk[:, 2:3]
+
+        encoded_full_skull = ccat((backg,
+                                   flap + fullsk),
+                                  1)
+        encoded_flap = ccat((1 - flap,
+                             flap),
+                            1)
+        return encoded_full_skull, encoded_flap
+
+
+class UNetDO(UNet4b1i3o):
+    """ Unet with Double output."""
+    def __init__(self):
+        super(UNetDO, self).__init__()
+
+    def forward(self, x):
+        # U-Net forward pass
+        backg_flap_fullsk = super(UNetDO, self).forward(x)
         backg = backg_flap_fullsk[:, 0:1]
         flap = backg_flap_fullsk[:, 1:2]
         fullsk = backg_flap_fullsk[:, 2:3]

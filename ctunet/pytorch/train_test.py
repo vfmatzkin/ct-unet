@@ -504,5 +504,6 @@ def cli():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        Model([sys.argv[1]])
+    # if len(sys.argv) > 1:
+    #     Model([sys.argv[1]])
+    Model('/home/franco/Code/ctunet/ctunet/cfg/FlapRecWoSP304_224_2O.ini')

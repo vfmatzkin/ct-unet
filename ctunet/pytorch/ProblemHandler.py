@@ -193,10 +193,15 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
 
     """
 
-    def __init__(self):
-        super(FlapRecWithShapePriorDoubleOut, self).__init__(
-            FlapRecWShapePrior2OTrainDataset, NiftiImageWithAtlasDataset
-        )
+    def __init__(self, with_sp=True):
+        if with_sp:
+            super(FlapRecWithShapePriorDoubleOut, self).__init__(
+                FlapRecWShapePrior2OTrainDataset, NiftiImageWithAtlasDataset
+            )
+        else:
+            super(FlapRecWithShapePriorDoubleOut, self).__init__(
+                FlapRec2OTrainDataset, NiftiImageDataset
+            )
 
     @staticmethod
     def comp_losses_metrics(model, prediction, target, idx, n_imgs):
@@ -327,6 +332,11 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
                                              name.replace('.nii.gz',
                                                           '_i.nii.gz')))
                 print("saved.")
+
+
+class FlapRecDoubleOut(FlapRecWithShapePriorDoubleOut):
+    def __init__(self):
+        super(FlapRecDoubleOut, self).__init__(with_sp=False)
 
 
 class DenoisingAE(ImageTargetProblem):
