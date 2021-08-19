@@ -153,7 +153,6 @@ class ImageTargetProblem(ProblemHandler, ABC):
             sitk.WriteImage(sitk_orig_img,
                             os.path.join(out_folder,
                                          name.replace('.nii.gz', '_i.nii.gz')))
-            print("saved.")
 
 
 class FlapRec(ImageTargetProblem):
@@ -331,7 +330,6 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
                                 os.path.join(out_folder,
                                              name.replace('.nii.gz',
                                                           '_i.nii.gz')))
-                print("saved.")
 
 
 class FlapRecDoubleOut(FlapRecWithShapePriorDoubleOut):

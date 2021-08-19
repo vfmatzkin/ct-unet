@@ -48,8 +48,8 @@ class Model:
 
         self.params = {  # Initialize required params by defalut
             # DEFAULT
-            "train_flag": None,
-            "test_flag": None,
+            "train_flag": False,
+            "test_flag": False,
             # MODEL
             "name": None,  # Trained model name
             "model_class": None,  # Model class name (located in models.py)
@@ -82,6 +82,7 @@ class Model:
             "resume_model": None,  # Load the model in the provided path
             "show_model_summary": None,  # Show no. of params
             "n_workers": None,
+            "force_resumed": False,  # Force use the resumed model on inference
         }
 
         # Overwrite the supplied params (this way I don't have to specify
@@ -317,7 +318,7 @@ class Model:
         :param data_loader: The train/validation/test loader
         :return:
         """
-        print("Phase: {}.".format(phase))
+        print(f"Phase: {phase}.")
 
         if phase == "train":
             self.models["main"].train()
@@ -395,20 +396,28 @@ class Model:
             os.path.expanduser(self.params['workspace_path'])
         utils.veri_folder(wsp)
 
+        # Model folder in the workspace path (Model + ProblemHandler)
         mc, hd = self.params['model_class'], self.params['problem_handler']
         run_name = mc + '_' + hd
         model_folder = os.path.join(os.path.expanduser(wsp), run_name, 'model')
         utils.veri_folder(model_folder)
 
-        if self.params['name'] in ["", None] and self.params[
-            "resume_model"] != "":
-            self.params['name'] = os.path.splitext(
-                os.path.split(self.params["resume_model"])[1])[0]
-            self.params['model_path'] = self.params['resume_model']
-        else:
-            self.params['model_path'] = os.path.join(model_folder,
-                                                     self.params['name'] +
-                                                     '.pt')
+        name, res_path = self.params['name'], self.params['resume_model']
+        res_filename = os.path.splitext(os.path.split(res_path)[1])[0]
+
+        if name in ["", None] and res_path in ["", None]:
+            raise AttributeError("You should set at least a name or a path "
+                                 "of a previously trained model for lookup.")
+
+        self.params['model_path'] = res_path if res_path != '' else None
+        self.params['name'] = res_filename if not name and res_path else name
+
+        if not self.params['force_resumed']:
+            # In cases such as training a new model or testing right after
+            # training, the model path will be this new path, otherwise it
+            # will be the model previously trained set in resume_model.
+            new_name = os.path.join(model_folder, name + '.pt')
+            self.params['model_path'] = new_name
 
         if self.params['tensorboard_run_path'] is None:
             tb_folder_name = run_name + '_' + self.params['name']
@@ -504,6 +513,5 @@ def cli():
 
 
 if __name__ == "__main__":
-    # if len(sys.argv) > 1:
-    #     Model([sys.argv[1]])
-    Model('/home/franco/Code/ctunet/ctunet/cfg/FlapRecWoSP304_224_2O.ini')
+    if len(sys.argv) > 1:
+        Model([sys.argv[1]])
