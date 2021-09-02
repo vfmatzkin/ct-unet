@@ -506,6 +506,11 @@ class Model:
             )
 
 
+def load_ini_file(ini_file: str):
+    """ Create instance of Model with the provided ini file path."""
+    Model(ini_file)
+
+
 def cli():
     """Run the headctools CLI interface."""
     if len(sys.argv) > 1:
