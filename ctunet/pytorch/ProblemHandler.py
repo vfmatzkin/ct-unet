@@ -130,7 +130,7 @@ class ImageTargetProblem(ProblemHandler, ABC):
                                                          input_filepaths,
                                                          input_imgs):
             path, name = os.path.split(input_filepath)
-            print("  " + name + "..", end='')
+            print("  " + name + "..")
             out_folder = utils.veri_folder(
                 os.path.join(path, "pred_" + output_folder_name)
             )
@@ -309,7 +309,7 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
                                               encoded_flaps,
                                               input_filepaths):
             path, name = os.path.split(inp_path)
-            print("  " + name + "..", end='')
+            print("  " + name + "..")
             out_folder = utils.veri_folder(
                 os.path.join(path, "pred_" + output_folder_name)
             )

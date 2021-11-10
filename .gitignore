@@ -1,3 +1,5 @@
+ctunet/cfg/
+build/
 tmp/
 img/
 venv/

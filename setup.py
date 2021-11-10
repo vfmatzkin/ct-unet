@@ -8,7 +8,7 @@ REQUIREMENTS = ["numpy", "torch", "SimpleITK", "pynrrd", "medpy",
                 "pandas", "scikit-image"]
 
 PATH = pathlib.Path(os.path.abspath(os.path.dirname(__file__)))
-VERSION = "0.1"
+VERSION = "0.102"
 DESCRIPTION = "3D UNet for CT segmentation with PyTorch"
 
 with open(PATH / "README.md") as fp:
