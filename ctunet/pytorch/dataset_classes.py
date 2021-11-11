@@ -233,7 +233,7 @@ class FlapRecWShapePrior2OTrainDataset(NiftiImageDataset):
                              dtype=torch.float)
 
         # In this case I'll always apply the flap extraction
-        if self.already_augmented_id not in img_name:
+        if self.already_augmented_id not in os.path.split(img_name)[1]:
             sample = {'image': image, 'filepath': img_name}
             sample = self.transform(sample, self.append_full)
         else:  # The flap is already extracted

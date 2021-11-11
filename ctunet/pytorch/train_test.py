@@ -79,7 +79,7 @@ class Model:
             # MISC
             "autosave_epochs": None,  # Frequency of model checkpoint saving.
             "save_dice_plots": None,  # Save Dice coefficient plot
-            "resume_model": None,  # Load the model in the provided path
+            "resume_model": '',  # Load the model in the provided path
             "show_model_summary": None,  # Show no. of params
             "n_workers": None,
             "force_resumed": False,  # Force use the resumed model on inference

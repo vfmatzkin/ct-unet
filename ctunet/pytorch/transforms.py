@@ -78,7 +78,6 @@ def cranioplasty_transform(sample, return_full=False):
                                       flap[0, 1:2],
                                       full_skull[0, 1:2]))
     else:
-        flap = torch.from_numpy(flap).float()
         sample['target'] = utils.one_hot_encoding(flap).squeeze(0)
 
     return sample
