@@ -127,7 +127,7 @@ class NiftiImageWithAtlasDataset(Dataset):
             dtype=torch.float),
             'filepath': img_name}
 
-        sample['image'] = sample['image'].unsqueeze(0)
+        # sample['image'] = sample['image'].unsqueeze(0)
         if self.transform:
             sample = self.transform(sample)
 
@@ -135,9 +135,9 @@ class NiftiImageWithAtlasDataset(Dataset):
         sample['image'] = load_atlas_and_append_at_axis(self.atlas_path,
                                                         sample['image'], 0)
 
-        if 'target' in sample:
-            sample['target'] = utils.one_hot_encoding(
-                sample['target']).squeeze(0)
+        # if 'target' in sample:
+        #     sample['target'] = utils.one_hot_encoding(
+        #         sample['target']).squeeze(0)
 
         return sample
 

@@ -5,7 +5,7 @@ from setuptools import setup
 
 REQUIREMENTS = ["numpy", "torch", "SimpleITK", "pynrrd", "medpy",
                 "raster_geometry", "requests", "typer", "tensorboard",
-                "pandas", "scikit-image"]
+                "scikit-image"]
 
 PATH = pathlib.Path(os.path.abspath(os.path.dirname(__file__)))
 VERSION = "0.102"

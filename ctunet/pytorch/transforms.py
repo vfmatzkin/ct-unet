@@ -31,7 +31,8 @@ def flap_rec_transform(sample):
     sample['image'] = utils.salt_and_pepper(sample['image'],
                                             noise_probability=.01,
                                             noise_density=.05)
-    sample['target'] = torch.tensor(sample['target'], dtype=torch.float32)
+    # sample['target'] = torch.tensor(sample['target'], dtype=torch.float32)
+    sample['target'] = sample['target'].clone().detach().float()  # TODO gpuvar
     sample['image'] = torch.tensor(sample['image'], dtype=torch.float32)
     sample['target'] = utils.one_hot_encoding(sample['target']).squeeze(
         0)  # Encode the target

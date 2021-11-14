@@ -254,11 +254,15 @@ def random_blank_patch(image, prob=1, return_extracted=False, p_type="random"):
     if prob >= r:  # Inside the probability -> crop
         image_size = image.shape
 
-        while True:
-            # Define center of the mask
-            center = np.array(
-                [np.random.randint(0, dim) for dim in image.shape]
-            )  # random point
+        # Select a nonzero pixel
+        # TODO Check which selection method is faster
+        pixels = np.argwhere(image > 0)
+        while pixels.shape[0]:
+            center = pixels[np.random.choice(pixels.shape[0])]
+            # # Define center of the mask
+            # center = np.array(
+            #     [np.random.randint(0, dim) for dim in image.shape]
+            # )  # random point
             plane_cond = (
                     center[1] * (3 / 7 * image_size[0] / image_size[1]) +
                     center[0]
@@ -408,6 +412,9 @@ def set_cfg_params(cfg_file=None, default_dict=None):
     )  # Initialize the dictionary
     config = configparser.ConfigParser()
     config.read(cfg_file)
+    if not os.path.exists(cfg_file):
+        raise FileNotFoundError("The provided cfg file does not exist "
+                                f"({cfg_file}).")
 
     for each_section in config.sections():
         for (key, value) in config.items(each_section):
