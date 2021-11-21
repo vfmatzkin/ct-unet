@@ -25,7 +25,6 @@ class FlapRecTransform:
 
 
 def flap_rec_transform(sample):
-    sample['image'] = sample['image'].unsqueeze(0)
     sample['image'], sample['target'] = utils.skull_random_hole(
         sample['image'], prob=.8, return_extracted=True)
     sample['image'] = utils.salt_and_pepper(sample['image'],
@@ -62,7 +61,6 @@ def cranioplasty_transform(sample, return_full=False):
     full_skull = utils.erode_dilate(full_skull, p=0.7)
 
     # BONE FLAP EXTRACTION
-    full_skull = full_skull.unsqueeze(0)
     incomp_skull, flap = utils.skull_random_hole(full_skull.clone(), prob=0.8,
                                                  return_extracted=True)
 

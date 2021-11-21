@@ -127,7 +127,7 @@ class NiftiImageWithAtlasDataset(Dataset):
             dtype=torch.float),
             'filepath': img_name}
 
-        # sample['image'] = sample['image'].unsqueeze(0)
+        sample['image'] = sample['image'].unsqueeze(0)  # Batch dimension
         if self.transform:
             sample = self.transform(sample)
 
