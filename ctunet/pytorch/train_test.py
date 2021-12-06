@@ -101,6 +101,8 @@ class Model:
         self.write_predictions = self.problem_handler.write_predictions
         self.comp_losses_metrics = self.problem_handler.comp_losses_metrics
 
+        self.out_paths = None  # self.write_predictions output (output paths)
+
         self.models = {
             "main": None,  # Trained model
             "acnn": None,  # ACNN model used for regularization (if neccesary)
@@ -359,8 +361,10 @@ class Model:
                     for param in self.models["main"].parameters():
                         param.grad = None
             elif phase == "test":
-                self.write_predictions(model_out, sample["filepath"],
-                                       self.params["name"], input_img)
+                self.out_paths = self.write_predictions(model_out,
+                                                        sample["filepath"],
+                                                        self.params["name"],
+                                                        input_img)
 
     def update_plots_tensorboard_avg(self, phase, i, type="epoch",
                                      print_to_console=False):

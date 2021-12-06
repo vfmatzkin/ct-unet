@@ -124,6 +124,7 @@ class ImageTargetProblem(ProblemHandler, ABC):
         :return:
         """
         print(" Saving prediction for...")
+        saved_paths = []
 
         # For each element in the batch
         for prediction, input_filepath, input_img in zip(predictions,
@@ -144,15 +145,22 @@ class ImageTargetProblem(ProblemHandler, ABC):
             if type(sitk_out) == list:
                 for i, sitk_out_img in enumerate(sitk_out):  # Several channels
                     name_c = name.replace('.nii.gz', f'_c{i}.nii.gz')
-                    sitk.WriteImage(sitk_out_img,
-                                    os.path.join(out_folder, name_c))
+                    out_im_path = os.path.join(out_folder, name_c)
+                    sitk.WriteImage(sitk_out_img, out_im_path)
+                    saved_paths.append(out_im_path)
             else:
-                sitk.WriteImage(sitk_out, os.path.join(out_folder, name))
+                name_sff = name.replace('.nii.gz', f'_fl.nii.gz')
+                out_im_path = os.path.join(out_folder, name_sff)
 
-            # Write input image
-            sitk.WriteImage(sitk_orig_img,
-                            os.path.join(out_folder,
-                                         name.replace('.nii.gz', '_i.nii.gz')))
+                sitk.WriteImage(sitk_out, out_im_path)
+                saved_paths.append(out_im_path)
+
+        # Write input image
+        orig_im_path = os.path.join(out_folder, name.replace('.nii.gz',
+                                                             '_i.nii.gz'))
+        sitk.WriteImage(sitk_orig_img, orig_im_path)
+        saved_paths.append(orig_im_path)
+        return saved_paths
 
 
 class FlapRec(ImageTargetProblem):
@@ -303,6 +311,7 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
         print(" Saving prediction for...")
 
         encoded_full_skulls, encoded_flaps = predictions
+        saved_paths = []
 
         # For each element in the batch
         for pred_sk, pred_fl, inp_path in zip(encoded_full_skulls,
@@ -323,13 +332,16 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
                 sitk_out = utils.get_sitk_img(np_out, origin, direction,
                                               spacing)
                 o_name = name.replace('.nii.gz', '_' + nme + '.nii.gz')
-                sitk.WriteImage(sitk_out, os.path.join(out_folder, o_name))
+                out_im_path = os.path.join(out_folder, o_name)
+                sitk.WriteImage(sitk_out, out_im_path)
+                saved_paths.append(out_im_path)
 
-                # Write input image
-                sitk.WriteImage(sitk_orig_img,
-                                os.path.join(out_folder,
-                                             name.replace('.nii.gz',
-                                                          '_i.nii.gz')))
+            # Write input image
+            orig_im_path = os.path.join(out_folder, name.replace('.nii.gz',
+                                                                 '_i.nii.gz'))
+            sitk.WriteImage(sitk_orig_img, orig_im_path)
+            saved_paths.append(orig_im_path)
+        return saved_paths
 
 
 class FlapRecDoubleOut(FlapRecWithShapePriorDoubleOut):
