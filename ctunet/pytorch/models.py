@@ -276,6 +276,17 @@ class UNet4b2i3o(UNet):
         super(UNet4b2i3o, self).__init__(i_size=7, input_channels=2,
                                          out_channels=3,
                                          use_checkpoint=True)
+
+
+class UNet5b2i3o(UNet):
+    """ Three-channel output UNet with Shape Priors. """
+
+    def __init__(self):
+        super(UNet5b2i3o, self).__init__(i_size=4, input_channels=2,
+                                         out_channels=3, n_blocks=5,
+                                         use_checkpoint=True)
+
+
 class UNet4b1i3o(UNet):
     """ Three-channel output UNet without Shape Priors. """
 
@@ -319,8 +330,44 @@ class UNetSP(UNet4b2i3o):
         return encoded_full_skull, encoded_flap
 
 
+class UNetSPSmall(UNet5b2i3o):
+    """ Unet with Shape Priors.
+
+    This model uses a standard U-Net with two input channels and three
+    output channels for allowing the prediction of both the missing bone
+    flap and the full skull.
+
+    The output of this model takes the output of the three-channel UNet,
+    and indirectly forces that the channels 1 and 2 are the flap and full
+    skull, respectively (the channel 0 is the full skull background). This
+    is enforced in the corresponding Loss function (see the ProblemHandler
+    FlapRecWithShapePriorDoubleOut.comp_losses_metrics).
+
+    """
+
+    def __init__(self):
+        super(UNetSPSmall, self).__init__()
+
+    def forward(self, x):
+        # U-Net forward pass
+        backg_flap_fullsk = super(UNetSPSmall, self).forward(x)
+        backg = backg_flap_fullsk[:, 0:1]
+        flap = backg_flap_fullsk[:, 1:2]
+        fullsk = backg_flap_fullsk[:, 2:3]
+
+        encoded_full_skull = ccat((backg,
+                                   flap + fullsk),
+                                  1)
+        encoded_flap = ccat((1 - flap,
+                             flap),
+                            1)
+        return F.softmax(encoded_full_skull, dim=1), \
+               F.softmax(encoded_flap, dim=1)
+
+
 class UNetDO(UNet4b1i3o):
     """ Unet with Double output."""
+
     def __init__(self):
         super(UNetDO, self).__init__()
 

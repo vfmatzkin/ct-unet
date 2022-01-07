@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 import torch.nn as nn
 from torch.nn.functional import softmax
 
-from .dataset_classes import *
+from .datasets import *
 
 
 class ProblemHandler:
@@ -132,7 +132,7 @@ class ImageTargetProblem(ProblemHandler, ABC):
                                                          input_imgs):
             path, name = os.path.split(input_filepath)
             print("  " + name + "..")
-            out_folder = utils.veri_folder(
+            out_folder = utils.makedir(
                 os.path.join(path, "pred_" + output_folder_name)
             )
 
@@ -284,6 +284,16 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
             dice_coeff_fl = utils.dice_coeff(flap_p_sm, flap_t)
             lm["dice_coef_fl"].append(dice_coeff_fl)
 
+        if model.params["save_hd_plots"] is True:  # Hausdorff Distance
+            if "hd_coef_sk" not in lm:
+                lm["hd_coef_sk"] = []
+            if "hd_coef_fl" not in lm:
+                lm["hd_coef_fl"] = []
+            hd_coeff_sk = utils.hausdorff(full_skull_p_sm, full_skull_t)
+            lm["hd_coef_sk"].append(hd_coeff_sk)
+            hd_coeff_fl = utils.hausdorff(flap_p_sm, flap_t)
+            lm["hd_coef_fl"].append(hd_coeff_fl)
+
         # I'll convert the list into a PyTorch tensor
         model.pt_loss = sum(model.pt_loss)
 
@@ -319,7 +329,7 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
                                               input_filepaths):
             path, name = os.path.split(inp_path)
             print("  " + name + "..")
-            out_folder = utils.veri_folder(
+            out_folder = utils.makedir(
                 os.path.join(path, "pred_" + output_folder_name)
             )
 

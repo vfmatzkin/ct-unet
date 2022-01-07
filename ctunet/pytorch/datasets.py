@@ -9,9 +9,11 @@
 import os
 
 import SimpleITK as sitk
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+from torch.nn.functional import one_hot
 
 from .transforms import flap_rec_transform, cranioplasty_transform, \
     salt_and_pepper_ae
@@ -19,9 +21,11 @@ from .. import utilities as utils
 
 src = os.path.expanduser('~/headctools/assets/atlas/reg')
 ATLASES = {
+    (64, 128, 128): os.path.join(src, 'atlas_128_64.nii.gz'),
     (224, 304, 304): os.path.join(src, 'atlas_304_224.nii.gz'),
     (224, 512, 512): os.path.join(src, 'atlas_skull_512_224.nii.gz')
 }
+
 
 def load_atlas_and_append_at_axis(image, axis=0, im_size=None):
     # If not provided, grab the last three dims
@@ -33,60 +37,14 @@ def load_atlas_and_append_at_axis(image, axis=0, im_size=None):
                                 f"{avail_sizes}.")
     atlas_path = ATLASES[tuple(im_size)]
     if os.path.exists(atlas_path):
-        atlas_path = torch.tensor(
+        atlas = torch.tensor(
             sitk.GetArrayFromImage(sitk.ReadImage(atlas_path)),
             dtype=torch.float).unsqueeze(axis)
-        image = torch.cat((image, atlas_path), axis)
+        image = torch.cat((image, atlas), axis)
     else:
         raise Exception(f"Atlas not found {atlas_path}.")
 
     return image
-
-
-class BrainSegmentationDataset(Dataset):
-    """
-    This dataset loads the CT scans and its masks
-    """
-
-    def __init__(self, csv_file=None, root_dir="", transform=None,
-                 single_file=None):
-        """
-        Args:
-            csv_file (string): Path to the csv file with annotations.
-            root_dir (string): Directory with all the images.
-            transform (callable, optional): Optional transform to be applied
-                on a sample.
-        """
-        if single_file is not None:
-            self.files_frame = pd.DataFrame(data={'image': [single_file],
-                                                  'mask': ['']})
-        else:
-            self.files_frame = pd.read_csv(csv_file, )
-        self.root_dir = root_dir
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.files_frame)
-
-    def __getitem__(self, idx):
-        img_name = os.path.join(self.root_dir,
-                                self.files_frame.iloc[idx, 0])
-        seg_name = os.path.join(self.root_dir,
-                                self.files_frame.iloc[idx, 1])
-
-        image = sitk.GetArrayFromImage(sitk.ReadImage(img_name))
-        segmentation = sitk.GetArrayFromImage(
-            sitk.ReadImage(seg_name)) if os.path.exists(seg_name) else image
-
-        image = torch.tensor(image, dtype=torch.float32).unsqueeze(0)
-        target = utils.one_hot_encoding(
-            torch.tensor(segmentation, dtype=torch.float32).unsqueeze(
-                0)).squeeze(0)
-        sample = {'image': image,
-                  'target': target,
-                  'filepath': img_name}
-
-        return sample
 
 
 class NiftiImageWithAtlasDataset(Dataset):
@@ -241,16 +199,21 @@ class FlapRecWShapePrior2OTrainDataset(NiftiImageDataset):
         if self.already_augmented_id not in os.path.split(img_name)[1]:
             sample = {'image': image, 'filepath': img_name}
             sample = self.transform(sample, self.append_full)
-        else:  # The flap is already extracted
-            flap_path = os.path.join(self.root_dir,
-                                     self.files_frame.iloc[idx, 1])
+        else:  # The flap is already extracted.
+            mask_path = self.files_frame.iloc[idx, 1]
+            mask_path = mask_path if not np.isnan(
+                mask_path) else img_name.replace('_nfg_d', '_nfg_i')
+            flap_path = os.path.join(self.root_dir, mask_path)
             flap = torch.from_numpy(
                 sitk.GetArrayFromImage(sitk.ReadImage(flap_path)))
             full_skull = image + flap
-            full_skull = utils.one_hot_encoding(full_skull.unsqueeze(0))
-            flap = utils.one_hot_encoding(flap.unsqueeze(0))
+            # full_skull = utils.one_hot_encoding(full_skull.unsqueeze(0))
+            # flap = utils.one_hot_encoding(flap.unsqueeze(0))
 
-            target = full_skull.squeeze(0), flap.squeeze(0)
+            full_skull = one_hot(full_skull.long(), 2).movedim(3, 0)
+            flap = one_hot(flap.long(), 2).movedim(3, 0)
+
+            target = full_skull, flap
             sample = {'image': image.unsqueeze(0),
                       'target': target,
                       'filepath': img_name}
@@ -297,8 +260,8 @@ class FlapRecWShapePriorTrainDataset(FlapRecWShapePrior2OTrainDataset):
     def __init__(self, csv_file=None, root_dir="",
                  full_skull_fileid='complete_skull',
                  fr_transform=cranioplasty_transform,
-                 append_atlas='~/headctools/assets/atlas/reg/atlas_304_224.nii'
-                              '.gz', single_file=None):
+                 append_atlas=True,
+                 single_file=None):
         super(FlapRecWShapePriorTrainDataset, self).__init__(csv_file,
                                                              root_dir,
                                                              full_skull_fileid,

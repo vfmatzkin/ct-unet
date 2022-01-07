@@ -8,20 +8,21 @@
 
 import configparser
 import os
-import random
 import timeit
 
 import SimpleITK as sitk
 import numpy as np
 import torch
 import torch.nn as nn
+from ctunet.pytorch.transforms import fixed_pad
 from raster_geometry import cylinder, cube
+import monai.metrics as mon
 
 
-def veri_folder(path=None):
-    """Verifies if the pred_folder exists, if not, it will be created.
+def makedir(path=None):
+    """Creates the folder in path if not exists.
 
-    :param path: pred_folder to be ckecked/created.
+    :param path: pred_folder to be created.
     :return: path of the pred_folder
     """
     if not path:
@@ -50,22 +51,23 @@ class dice_loss(nn.Module):
 
 
 def dice_coeff(pred, target):
-    b_size = target.size(0)
-    eps = 0.0000001
+    dc = mon.compute_meandice(
+        torch.movedim(torch.nn.functional.one_hot(torch.argmax(pred, 1)),
+                      4, 1),
+        target,
+        include_background=False)
+    return torch.mean(dc)
 
-    dice_arr = []
-    for i in range(b_size):
-        probs = pred[i][0]
-        mask = target[i][0]
 
-        num = (probs.flatten() * mask.flatten()).sum()
-        den1 = (probs.flatten() * probs.flatten()).sum()
-        den2 = (mask.flatten() * mask.flatten()).sum()
-
-        dice = 2 * (num + eps) / (den1 + den2 + eps)
-        dice_arr.append(dice.item())
-
-    return np.mean(dice_arr)
+def hausdorff(result_b, reference_b):
+    inf_alt = max(reference_b.shape)
+    hd = mon.compute_hausdorff_distance(
+        torch.movedim(
+            torch.nn.functional.one_hot(torch.argmax(result_b, 1)),
+            4, 1),
+        reference_b)
+    hdc = torch.nan_to_num(hd, nan=inf_alt, posinf=inf_alt, neginf=inf_alt)
+    return torch.mean(hdc)
 
 
 def one_hot_encoding(pttensor):
@@ -120,74 +122,6 @@ def hard_segm_from_tensor(prob_map, keep_dims=False):
         prob_map = (torch.argmax(prob_map, dim=0)).type(torch.float)
         prob_map = prob_map.unsqueeze(0) if keep_dims else prob_map
     return prob_map
-
-
-def salt_and_pepper(img, noise_probability=1, noise_density=0.2,
-                    salt_ratio=0.1):
-    batch_size = img.shape[0]
-    output = np.copy(img).astype(np.uint8)
-    noise_density = np.random.uniform(0, noise_density)
-    for i in range(batch_size):
-        r = random.uniform(0, 1)  # Random number
-        if noise_probability >= r:  # Inside the probability
-            black_dots = (
-                    np.random.uniform(0, 1, output[i, :, :, :].shape)
-                    > noise_density * (1 - salt_ratio)
-            ).astype(np.uint8)
-            white_dots = 1 - (
-                    np.random.uniform(0, 1, output[i, :, :, :].shape)
-                    > noise_density * salt_ratio
-            ).astype(np.uint8)
-            output[i, :, :, :] = np.logical_and(output[i, :, :, :], black_dots)
-            output[i, :, :, :] = np.logical_or(output[i, :, :, :], white_dots)
-    return output
-
-
-def skull_random_hole(img, prob=1, return_extracted=False):
-    """ Simulate craniectomies placing random binary shapes.
-
-    Given a batch of 3D images (PyTorch tensors), crop a random cube or box
-    placed in a random position of the image with the sizes given in d.
-
-    :param img: Input image.
-    :param prob: probability of adding the noise (by default flip a coin).
-    :param return_extracted: Return extracted bone flap.
-    """
-    is_tensor = True if type(img) == torch.Tensor else False
-    if is_tensor:  # Batch of PyTorch tensors
-        batch_size = img.shape[0]
-        output = np.copy(img).astype(np.uint8)
-        if return_extracted:
-            flap = np.copy(img).astype(np.uint8)
-        for i in range(batch_size):
-            np_img = output[i, :, :, :]
-            if not return_extracted:
-                output[i] = random_blank_patch(np_img, prob, return_extracted)
-            else:
-                output[i], flap[i] = random_blank_patch(np_img, prob,
-                                                        return_extracted)
-        output = output if not is_tensor else torch.tensor(output,
-                                                           dtype=torch.int8)
-        if not return_extracted:
-            return output
-        else:
-            flap = flap if not is_tensor else torch.tensor(flap,
-                                                           dtype=torch.int8)
-            return output, flap
-    else:  # Single image of Preprocessor class
-        np_img = sitk.GetArrayFromImage(img)
-        o_spacing = img.GetSpacing()
-        o_direction = img.GetDirection()
-        o_origin = img.GetOrigin()
-
-        np_img = np_img.astype(np.uint8)
-        c_img = random_blank_patch(np_img, prob)
-
-        img_o = sitk.GetImageFromArray(c_img)
-        img_o.SetSpacing(o_spacing)
-        img_o.SetOrigin(o_origin)
-        img_o.SetDirection(o_direction)
-        return img_o
 
 
 def shape_3d(center, size, image_size, shape="flap"):
@@ -249,98 +183,6 @@ def get_img_center(img):
     return tuple([int(s / 2) for s in np_img.shape])
 
 
-def random_blank_patch(image, prob=1, return_extracted=False, p_type="random"):
-    r = random.uniform(0, 1)  # Random number
-    if prob >= r:  # Inside the probability -> crop
-        image_size = image.shape
-
-        # Select a nonzero pixel
-        # TODO Check which selection method is faster
-        pixels = np.argwhere(image > 0)
-        while pixels.shape[0]:
-            center = pixels[np.random.choice(pixels.shape[0])]
-            # # Define center of the mask
-            # center = np.array(
-            #     [np.random.randint(0, dim) for dim in image.shape]
-            # )  # random point
-            plane_cond = (
-                    center[1] * (3 / 7 * image_size[0] / image_size[1]) +
-                    center[0]
-                    > 0.65 * image_size[0]
-            )  # Plane
-            if image[tuple(center)] and plane_cond:  # white pixel
-                break
-
-        # Define radius
-        min_radius = (np.min(image_size) // 5) - 1
-        max_radius = np.max([min_radius, np.max(image_size) // 3.5])
-        size = np.random.randint(min_radius, max_radius)
-
-        valid_shapes = ["sphere", "box", "flap"]
-        p_type = (
-            valid_shapes[np.random.randint(0, len(valid_shapes))]
-            if p_type not in valid_shapes
-            else p_type
-        )
-        if p_type == "sphere":
-            shape_np = shape_3d(center, size, image_size, shape="sphere")
-        elif p_type == "box":
-            shape_np = shape_3d(center, size, image_size, shape="box")
-        else:
-            shape_np = shape_3d(center, size, image_size, shape="flap")
-
-        # Mask the image
-        masked_out = np.logical_and(image, shape_np).astype(
-            np.uint8
-        )  # Apply the mask
-
-        if not return_extracted:
-            return masked_out
-        else:
-            extracted = np.logical_and(image, 1 - shape_np).astype(np.uint8)
-            return masked_out, extracted
-    else:
-        if not return_extracted:
-            return image
-        else:
-            return image, np.zeros_like(image)
-
-
-def unpad(x, pad_width):
-    slices = []
-    for c in pad_width:
-        e = None if c[1] == 0 else -c[1]
-        slices.append(slice(c[0], e))
-    return x[tuple(slices)]
-
-
-def fixed_pad(v, final_img_size=None, mode="constant", constant_values=(0, 0),
-              return_padding=False, ):
-    if final_img_size is None:
-        print("Desired image size not provided!")
-        return None
-
-    for i in range(0, len(final_img_size)):
-        if v.shape[i] > final_img_size[i]:
-            print("The input size is bigger than the output size!")
-            print(v.shape, " vs ", final_img_size)
-            return None
-
-    padding = (
-        (0, final_img_size[0] - v.shape[0]),
-        (0, final_img_size[1] - v.shape[1]),
-        (0, final_img_size[2] - v.shape[2]),
-    )
-
-    if not return_padding:
-        return np.pad(v, padding, mode, constant_values=constant_values)
-    else:
-        return (
-            np.pad(v, padding, mode, constant_values=constant_values),
-            padding,
-        )
-
-
 def fixed_pad_sitk(sitk_img, pad):
     arr = sitk.GetArrayFromImage(sitk_img)
     outimg = sitk.GetImageFromArray(
@@ -349,24 +191,6 @@ def fixed_pad_sitk(sitk_img, pad):
     outimg.SetOrigin(sitk_img.GetOrigin())
     outimg.SetDirection(sitk_img.GetDirection())
     return outimg
-
-
-def random_flip(img, probability=0.5, axis=None):
-    batch_size = img.shape[0]
-    for i in range(batch_size):
-        r = random.uniform(0, 1)  # Random number
-        if probability >= r:  # Inside the probability
-            if axis is None:
-                ax = random.randint(1, 3)
-            else:
-                ax = axis
-            if ax == 1:
-                img[i, :, :, :] = torch.flip(img[i, :, :, :], dims=[0])
-            if ax == 2:
-                img[i, :, :, :] = torch.flip(img[i, :, :, :], dims=[1])
-            if ax == 3:
-                img[i, :, :, :] = torch.flip(img[i, :, :, :], dims=[2])
-    return img
 
 
 def np_to_sitk(np_img, origin, direction, spacing):
@@ -491,58 +315,3 @@ def view(tensor):
     sitk.Show(sitk.GetImageFromArray(tensor.cpu().detach().numpy()))
 
 
-def erode(sitk_img, times=1):
-    """ Given a SimpleITK image, erode it according to the times parameter
-
-    :param sitk_img: SimpleITK binary image.
-    :param times: Number of erosions performed.
-    :return:
-    """
-    for _ in range(times):
-        sitk_img = sitk.ErodeObjectMorphology(sitk_img)
-    return sitk_img
-
-
-def dilate(sitk_img, times=1):
-    """ Given a SimpleITK image, dilate it according to the times parameter
-
-    :param sitk_img: SimpleITK binary image.
-    :param times: Number of dilations performed.
-    :return:
-    """
-    for _ in range(times):
-        sitk_img = sitk.DilateObjectMorphology(sitk_img)
-    return sitk_img
-
-
-def erode_dilate(inp_img, p=1, min_it=0, max_it=1):
-    """ Apply an image erosion/dilation with a probability of application p.
-
-    :param inp_img: Input image. It could be a torch.Tensor, np.ndarray or
-    sitk.Image.
-    :param p: Probability for applying the transform.
-    :param min_it: Minimum number of iterations.
-    :param max_it: Minimum number of iterations.
-    :return: Eroded or dilated image in the same image type.
-    """
-    if np.random.rand() > p:  # do nothing
-        return inp_img
-
-    is_tensor = is_array = False
-    if type(inp_img) == torch.Tensor:
-        is_tensor = True
-        img = inp_img.numpy()
-        img = sitk.GetImageFromArray(img)
-    elif type(inp_img) == np.ndarray:
-        is_array = True
-        img = sitk.GetImageFromArray(inp_img)
-
-    times = np.random.randint(min_it, max_it)
-    out_img = np.random.choice([erode, dilate])(img, times)
-
-    if is_array:
-        return sitk.GetArrayFromImage(out_img)
-    elif is_tensor:
-        return torch.tensor(sitk.GetArrayFromImage(out_img))
-    else:
-        return out_img

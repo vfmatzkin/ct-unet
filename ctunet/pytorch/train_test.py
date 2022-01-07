@@ -171,7 +171,7 @@ class Model:
         dataset = dataset_class(dataset, "", single_file=single_file)
 
         r_sampler = torch.utils.data.RandomSampler(
-            dataset, replacement=True, num_samples=min(92, len(dataset))
+            dataset, replacement=True, num_samples=len(dataset)
         )
 
         dataloader = DataLoader(
@@ -268,7 +268,7 @@ class Model:
         """
         path = self.params["model_path"]
         dir_m, fname = os.path.split(path)
-        utils.veri_folder(dir_m)  # Check if output pred_folder exists
+        utils.makedir(dir_m)  # Check if output pred_folder exists
         torch.save(self.models["main"].state_dict(), path)  # Overwrite
 
         # Save the model parameters alongside the model if is first epoch
@@ -280,7 +280,7 @@ class Model:
             chk_p = os.path.join(dir_chk,
                                  fname.replace(".pt",
                                                "_ep" + str(epoch) + ".pt"))
-            utils.veri_folder(dir_chk)
+            utils.makedir(dir_chk)
             torch.save(self.models["main"].state_dict(), chk_p)
             print("Checkpoint saved ({})".format(save_checkpoint))
 
@@ -398,13 +398,13 @@ class Model:
             raise AttributeError('workspace_path not defined in the ini file.')
         wsp = self.params['workspace_path'] = \
             os.path.expanduser(self.params['workspace_path'])
-        utils.veri_folder(wsp)
+        utils.makedir(wsp)
 
         # Model folder in the workspace path (Model + ProblemHandler)
         mc, hd = self.params['model_class'], self.params['problem_handler']
         run_name = mc + '_' + hd
         model_folder = os.path.join(os.path.expanduser(wsp), run_name, 'model')
-        utils.veri_folder(model_folder)
+        utils.makedir(model_folder)
 
         name, res_path = self.params['name'], self.params['resume_model']
         res_filename = os.path.splitext(os.path.split(res_path)[1])[0]
@@ -488,7 +488,7 @@ class Model:
         """
         # Configure the optimizer
         if self.params["optimizer"] == "adam":
-            self.params["optimizer"] = optim.Adam(
+            self.params["optimizer"] = optim.AdamW(
                 self.models["main"].parameters(),
                 lr=self.params["learning_rate"],
                 weight_decay=self.params["weight_decay"],
