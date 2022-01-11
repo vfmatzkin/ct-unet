@@ -10,13 +10,14 @@ from .. import utilities as utils
 from torch.nn.functional import one_hot
 from torchvision import transforms
 
-composed = transforms.Compose([Rescale(256),
+flap_rec = transforms.Compose([SaltAndPepper(noise_probability=.01,
+                                             noise_density=.05),
                                RandomCrop(224)])
 
 
 class SaltAndPepper(object):
     def __init__(self, noise_probability=1, noise_density=0.2,
-                 salt_ratio=0.1, keyws=('image', 'mask'),
+                 salt_ratio=0.1, keyws=('image', 'target'),
                  apply_to=(True, False)):
         self.noise_probability = noise_probability
         self.noise_density = noise_density
@@ -50,7 +51,55 @@ class SaltAndPepper(object):
                     output[i, :, :, :] = np.logical_or(output[i, :, :, :],
                                                        white_dots)
             output = torch.FloatTensor(output)
-            return output if is_batch else output[0]
+            sample[keyw] = output if is_batch else output[0]
+        return sample
+
+
+class SkullRandomHole(object):
+    """ Simulate craniectomies placing random binary shapes.
+
+    Given a batch of 3D images (PyTorch tensors), crop a random cube or box
+    placed in a random position of the image with the sizes given in d.
+
+    :param img: Input image.
+    :param prob: probability of adding the noise (by default flip a coin).
+    :param return_flap: Return extracted bone flap.
+    """
+
+    def __init__(self, prob=1, return_flap=False):
+        self.prob = prob
+        self.return_flap = return_flap
+
+    def __call__(self, sample):
+        img = sample['image']
+        if not type(img) == torch.Tensor:
+            raise TypeError(f"Expected 'torch.Tensor'. Got {type(img)}.")
+        is_batch = len(img.shape) == 4
+        batch_size = img.shape[0] if is_batch else 1
+        brk_sk = np.copy((img if is_batch else img.unsqueeze(0))).astype(
+            np.uint8)  # Broken skull
+        flap = np.copy((img if is_batch else img.unsqueeze(0))).astype(
+            np.uint8) if self.return_flap else None  # Initialize the flap
+        for i in range(batch_size):  # Apply the transform for each img
+            np_img = brk_sk[i, :, :, :]
+            if not flap:
+                brk_sk[i] = random_blank_patch(np_img, self.prob,
+                                               self.return_flap)
+            else:
+                brk_sk[i], flap[i] = random_blank_patch(np_img, self.prob,
+                                                        self.return_flap)
+        brk_sk = torch.ByteTensor(brk_sk)
+        if not is_batch:
+            brk_sk = brk_sk[0]
+            if self.return_flap:
+                flap = flap[0]
+
+        if not self.return_flap:
+            return brk_sk
+        else:
+            flap = torch.ByteTensor(flap)
+            return brk_sk, flap
+        return sample
 
 
 class FlapRecTransform:
@@ -155,44 +204,6 @@ def salt_and_pepper_ae(sample):
                                     noise_density=.3)
     sample['image'] = torch.from_numpy(sample['image']).float()
     return sample
-
-
-def skull_random_hole(img, prob=1, return_extracted=False):
-    """ Simulate craniectomies placing random binary shapes.
-
-    Given a batch of 3D images (PyTorch tensors), crop a random cube or box
-    placed in a random position of the image with the sizes given in d.
-
-    :param img: Input image.
-    :param prob: probability of adding the noise (by default flip a coin).
-    :param return_extracted: Return extracted bone flap.
-    """
-    if not type(img) == torch.Tensor:
-        raise TypeError(f"Expected 'torch.Tensor'. Got {type(img)}.")
-    is_batch = len(img.shape) == 4
-    batch_size = img.shape[0] if is_batch else 1
-    output = np.copy((img if is_batch else img.unsqueeze(0))).astype(np.uint8)
-    if return_extracted:
-        flap = np.copy((img if is_batch else img.unsqueeze(0))).astype(
-            np.uint8)
-    for i in range(batch_size):
-        np_img = output[i, :, :, :]
-        if not return_extracted:
-            output[i] = random_blank_patch(np_img, prob, return_extracted)
-        else:
-            output[i], flap[i] = random_blank_patch(np_img, prob,
-                                                    return_extracted)
-    output = torch.ByteTensor(output)
-    if not is_batch:
-        output = output[0]
-        if return_extracted:
-            flap = flap[0]
-
-    if not return_extracted:
-        return output
-    else:
-        flap = torch.ByteTensor(flap)
-        return output, flap
 
 
 def random_blank_patch(image, prob=1, return_extracted=False, p_type="random",
