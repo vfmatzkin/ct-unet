@@ -95,13 +95,19 @@ class NiftiImageWithAtlasDataset(Dataset):
             'filepath': img_name}
 
         im_size = sample['image'].shape
-        sample['image'] = sample['image'].unsqueeze(0)  # Batch dimension
+        sample['image'] = sample['image'].unsqueeze(0)  # Channel dimension
         if self.transform:
             sample = self.transform(sample)
+            sample['image'] = sample['image'].float()  # Input must be float
 
         if self.append_atlas:
             sample['image'] = load_atlas_and_append_at_axis(sample['image'], 0,
                                                             im_size)
+
+        # Cast to long and apply one_hot encoding
+        if 'target' in sample:
+            sample['target'] = one_hot(sample['target'].long(), 2).movedim(3,
+                                                                           0)
 
         return sample
 
@@ -174,7 +180,7 @@ class FlapRecWShapePrior2OTrainDataset(NiftiImageDataset):
 
     def __init__(self, csv_file=None, root_dir="",
                  already_augmented_id='nfg',
-                 fr_transform=cranioplasty_transform,
+                 fr_transform=flap_rec_transform,
                  append_atlas=True,
                  single_file=None,
                  append_full=True):
@@ -192,13 +198,21 @@ class FlapRecWShapePrior2OTrainDataset(NiftiImageDataset):
 
         # We will apply the transform based on the file path
         image = torch.tensor(sitk.GetArrayFromImage(sitk.ReadImage(img_name)),
-                             dtype=torch.float)
-        im_size = image.shape
+                             dtype=torch.float).unsqueeze(0)  # Add channel dim
 
         # In this case I'll always apply the flap extraction
         if self.already_augmented_id not in os.path.split(img_name)[1]:
             sample = {'image': image, 'filepath': img_name}
-            sample = self.transform(sample, self.append_full)
+            sample = self.transform(sample)
+            sample['image'] = sample['image'].float()  # Input must be float
+
+            sample['target'] = (
+                one_hot(sample['target'][0].long(),
+                        2).movedim(4, 1).float().squeeze(0),
+                one_hot(sample['target'][1].long(),
+                        2).movedim(4, 1).float().squeeze(0)
+            )
+
         else:  # The flap is already extracted.
             mask_path = self.files_frame.iloc[idx, 1]
             mask_path = mask_path if not np.isnan(
@@ -207,20 +221,16 @@ class FlapRecWShapePrior2OTrainDataset(NiftiImageDataset):
             flap = torch.from_numpy(
                 sitk.GetArrayFromImage(sitk.ReadImage(flap_path)))
             full_skull = image + flap
-            # full_skull = utils.one_hot_encoding(full_skull.unsqueeze(0))
-            # flap = utils.one_hot_encoding(flap.unsqueeze(0))
-
             full_skull = one_hot(full_skull.long(), 2).movedim(3, 0)
             flap = one_hot(flap.long(), 2).movedim(3, 0)
 
             target = full_skull, flap
-            sample = {'image': image.unsqueeze(0),
+            sample = {'image': image,
                       'target': target,
                       'filepath': img_name}
 
         if self.append_atlas:
-            sample['image'] = load_atlas_and_append_at_axis(sample['image'], 0,
-                                                            im_size)
+            sample['image'] = load_atlas_and_append_at_axis(sample['image'], 0)
 
         return sample
 

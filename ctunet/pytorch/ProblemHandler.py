@@ -250,6 +250,172 @@ class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
             # CE Loss of the skull
             ce_loss_s = nn.CrossEntropyLoss()(full_skull_p, full_skull_t_am)
             model.pt_loss.append(model.params["ce_lambda"] * ce_loss_s)
+            lm["ce_sk"].append(.3*float(model.pt_loss[-1]))
+
+            # CE Loss of the flap
+            ce_loss_f = nn.CrossEntropyLoss()(flap_p, flap_t_am)
+            model.pt_loss.append(model.params["ce_lambda"] * ce_loss_f)
+            lm["ce_fl"].append(.7*float(model.pt_loss[-1]))
+
+        if model.params["dice_lambda"] != 0:  # Dice loss
+            if "dice_loss_sk" not in lm:
+                lm["dice_loss_sk"] = []
+            if "dice_loss_fl" not in lm:
+                lm["dice_loss_fl"] = []
+
+            # Dice Loss of the skull
+            dice_loss_s = utils.dice_loss()(full_skull_p_sm, full_skull_t)
+            model.pt_loss.append(model.params["dice_lambda"] * dice_loss_s)
+            lm["dice_loss_sk"].append(.3*float(model.pt_loss[-1]))
+
+            # Dice Loss of the flap
+            dice_loss_f = utils.dice_loss()(flap_p_sm, flap_t)
+            model.pt_loss.append(model.params["dice_lambda"] * dice_loss_f)
+            lm["dice_loss_fl"].append(.7*float(model.pt_loss[-1]))
+
+        # /!\ Metrics /!\
+        if model.params["save_dice_plots"] is True:  # Dice coefficient
+            if "dice_coef_sk" not in lm:
+                lm["dice_coef_sk"] = []
+            if "dice_coef_fl" not in lm:
+                lm["dice_coef_fl"] = []
+            dice_coeff_sk = utils.dice_coeff(full_skull_p_sm, full_skull_t)
+            lm["dice_coef_sk"].append(dice_coeff_sk)
+            dice_coeff_fl = utils.dice_coeff(flap_p_sm, flap_t)
+            lm["dice_coef_fl"].append(dice_coeff_fl)
+
+        if model.params["save_hd_plots"] is True:  # Hausdorff Distance
+            if "hd_coef_sk" not in lm:
+                lm["hd_coef_sk"] = []
+            if "hd_coef_fl" not in lm:
+                lm["hd_coef_fl"] = []
+            hd_coeff_sk = utils.hausdorff(full_skull_p_sm, full_skull_t)
+            lm["hd_coef_sk"].append(hd_coeff_sk)
+            hd_coeff_fl = utils.hausdorff(flap_p_sm, flap_t)
+            lm["hd_coef_fl"].append(hd_coeff_fl)
+
+        # I'll convert the list into a PyTorch tensor
+        model.pt_loss = sum(model.pt_loss)
+
+        if "epoch_loss" not in lm:  # Sum of all losses
+            lm["epoch_loss"] = []
+        lm["epoch_loss"].append(float(model.pt_loss))
+
+        print(
+            "    Batch {}/{} ({:.0f}%)\tLoss: {:.6f}".format(
+                idx + 1, n_imgs, 100.0 * (idx + 1) / n_imgs,
+                float(model.pt_loss)
+            )
+        )
+
+    def write_predictions(self, predictions, input_filepaths,
+                          output_folder_name, input_imgs):
+        """ Get predictions of a batch of images and save them as sitk images.
+
+        :param input_filepaths: Paths of the input images in the batch.
+        :param predictions: prediction of the batch.
+        :param output_folder_name: Name of the pred_folder with the outputs.
+        :param input_imgs: Input images.
+        :return:
+        """
+        print(" Saving prediction for...")
+
+        encoded_full_skulls, encoded_flaps = predictions
+        saved_paths = []
+
+        # For each element in the batch
+        for pred_sk, pred_fl, inp_path in zip(encoded_full_skulls,
+                                              encoded_flaps,
+                                              input_filepaths):
+            path, name = os.path.split(inp_path)
+            print("  " + name + "..")
+            out_folder = utils.makedir(
+                os.path.join(path, "pred_" + output_folder_name)
+            )
+
+            sitk_orig_img = sitk.ReadImage(inp_path)  # Input image
+            origin, direction, spacing = utils.get_sitk_metadata(sitk_orig_img)
+
+            for pred, nme in zip([pred_sk, pred_fl], ['sk', 'fl']):
+                np_out = pred.cpu().detach()  # Model prediction
+                np_out = utils.hard_segm_from_tensor(np_out).numpy()
+                sitk_out = utils.get_sitk_img(np_out, origin, direction,
+                                              spacing)
+                o_name = name.replace('.nii.gz', '_' + nme + '.nii.gz')
+                out_im_path = os.path.join(out_folder, o_name)
+                sitk.WriteImage(sitk_out, out_im_path)
+                saved_paths.append(out_im_path)
+
+            # Write input image
+            orig_im_path = os.path.join(out_folder, name.replace('.nii.gz',
+                                                                 '_i.nii.gz'))
+            sitk.WriteImage(sitk_orig_img, orig_im_path)
+            saved_paths.append(orig_im_path)
+        return saved_paths
+
+
+class FlapRecWithShapePriorDoubleOut(ImageTargetProblem):
+    """ Flap Reconstruction with Shape Priors problem with double output.
+
+    Simulate flaps only while training. In test time load only the images.
+    It will always load a Shape Prior (typically an atlas) and concatenate
+    it to the input.
+    The model output will be a two-channel binary image, consisting in the
+    predicted bone flap in the first channel, and the full skull (input+flap)
+    in the second channel.
+
+    """
+
+    def __init__(self, with_sp=True):
+        if with_sp:
+            super(FlapRecWithShapePriorDoubleOut, self).__init__(
+                FlapRecWShapePrior2OTrainDataset, NiftiImageWithAtlasDataset
+            )
+        else:
+            super(FlapRecWithShapePriorDoubleOut, self).__init__(
+                FlapRec2OTrainDataset, NiftiImageDataset
+            )
+
+    @staticmethod
+    def comp_losses_metrics(model, prediction, target, idx, n_imgs):
+        """ Compute the losses and required metrics.
+
+        Calculate the losses depending on the model phase, and save it in
+        self.pt_loss. It contains two basic losses and one metric.
+
+        :param model: Model instance. It contains all the training related
+        information.
+        :param prediction: Model prediction.
+        :param target: Target image.
+        :param idx: Batch index
+        :param n_imgs: Number of imgs in the batch
+        :return:
+        """
+        model.pt_loss = []  # List that will contain all the weighted losses.
+
+        full_skull_p, flap_p = prediction
+        full_skull_t, flap_t = target
+
+        if model.params["dice_lambda"] or model.params["save_dice_plots"]:
+            full_skull_p_sm = softmax(full_skull_p, dim=1)
+            flap_p_sm = softmax(flap_p, dim=1)
+
+        lm = model.losses_and_metrics
+
+        # /!\ Loss functions /!\
+        # Binary cross entropy between model output and target
+        if model.params["ce_lambda"] != 0:
+            if "ce_sk" not in lm:
+                lm["ce_sk"] = []  # For visualization
+            if "ce_fl" not in lm:
+                lm["ce_fl"] = []
+
+            full_skull_t_am = torch.argmax(full_skull_t, 1)
+            flap_t_am = torch.argmax(flap_t, 1)
+
+            # CE Loss of the skull
+            ce_loss_s = nn.CrossEntropyLoss()(full_skull_p, full_skull_t_am)
+            model.pt_loss.append(model.params["ce_lambda"] * ce_loss_s)
             lm["ce_sk"].append(float(model.pt_loss[-1]))
 
             # CE Loss of the flap

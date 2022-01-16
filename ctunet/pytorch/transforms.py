@@ -4,22 +4,16 @@ import SimpleITK as sitk
 import numpy as np
 import torch
 import torchio as tio
-from ctunet.utilities import shape_3d
-
-from .. import utilities as utils
 from torch.nn.functional import one_hot
 from torchvision import transforms
 
-flap_rec = transforms.Compose([SaltAndPepper(noise_probability=.01,
-                                             noise_density=.05),
-                               RandomCrop(224)])
+from .. import utilities as utils
 
 
 class SaltAndPepper(object):
-    def __init__(self, noise_probability=1, noise_density=0.2,
-                 salt_ratio=0.1, keyws=('image', 'target'),
-                 apply_to=(True, False)):
-        self.noise_probability = noise_probability
+    def __init__(self, p=1, noise_density=0.2, salt_ratio=0.1,
+                 keyws=('image', 'target'), apply_to=(True, False)):
+        self.p = p
         self.noise_density = noise_density
         self.salt_ratio = salt_ratio
         self.keyws = keyws
@@ -37,7 +31,7 @@ class SaltAndPepper(object):
             self.noise_density = np.random.uniform(0, self.noise_density)
             for i in range(batch_size):
                 r = random.uniform(0, 1)  # Random number
-                if self.noise_probability >= r:  # Inside the probability
+                if self.p >= r:  # Inside the probability
                     black_dots = (
                             np.random.uniform(0, 1, output[i, :, :, :].shape)
                             > self.noise_density * (1 - self.salt_ratio)
@@ -62,13 +56,13 @@ class SkullRandomHole(object):
     placed in a random position of the image with the sizes given in d.
 
     :param img: Input image.
-    :param prob: probability of adding the noise (by default flip a coin).
+    :param p: probability of adding the noise (by default flip a coin).
     :param return_flap: Return extracted bone flap.
     """
 
-    def __init__(self, prob=1, return_flap=False):
-        self.prob = prob
-        self.return_flap = return_flap
+    def __init__(self, p=1, double_output=False):
+        self.p = p
+        self.double_output = double_output
 
     def __call__(self, sample):
         img = sample['image']
@@ -79,63 +73,101 @@ class SkullRandomHole(object):
         brk_sk = np.copy((img if is_batch else img.unsqueeze(0))).astype(
             np.uint8)  # Broken skull
         flap = np.copy((img if is_batch else img.unsqueeze(0))).astype(
-            np.uint8) if self.return_flap else None  # Initialize the flap
+            np.uint8)  # Initialize flap
+        if self.double_output:
+            full_sk = torch.ByteTensor(
+                np.copy((img if is_batch else img.unsqueeze(0))).astype(
+                    np.uint8))  # Save full skull
         for i in range(batch_size):  # Apply the transform for each img
             np_img = brk_sk[i, :, :, :]
-            if not flap:
-                brk_sk[i] = random_blank_patch(np_img, self.prob,
-                                               self.return_flap)
-            else:
-                brk_sk[i], flap[i] = random_blank_patch(np_img, self.prob,
-                                                        self.return_flap)
+            brk_sk[i], flap[i] = random_blank_patch(np_img, self.p, True)
         brk_sk = torch.ByteTensor(brk_sk)
         if not is_batch:
             brk_sk = brk_sk[0]
-            if self.return_flap:
-                flap = flap[0]
+            flap = flap[0]
+        flap = torch.ByteTensor(flap)
 
-        if not self.return_flap:
-            return brk_sk
+        if self.double_output:
+            sample = {'image': brk_sk, 'target': (full_sk, flap)}
         else:
-            flap = torch.ByteTensor(flap)
-            return brk_sk, flap
+            sample = {'image': brk_sk, 'target': flap}
         return sample
 
 
-class FlapRecTransform:
-    def __new__(cls, img=None):
-        if img is not None:
-            return cls.apply_transform(img)
+def ErodeDilate(inp_img, p=1):  # TODO TERMINAR!
+    """ Apply an image erosion/dilation with a probability of application p.
 
-    def apply_transform(self, sample):
-        sample['image'], sample['target'] = skull_random_hole(
-            sample['image'], prob=0.8, return_extracted=True)
-        sample['image'] = SaltAndPepper(sample['image'],
-                                        noise_probability=.01,
-                                        noise_density=.05)
-        sample['target'] = torch.FloatTensor(sample['target'])
-        sample['image'] = torch.FloatTensor(sample['image'])
-        sample['target'] = utils.one_hot_encoding(
-            sample['target'])  # Encode the target
-        sample['image'] = sample['image'].unsqueeze(
-            1)  # Add the channel dimension
+    :param inp_img: Input image. It could be a torch.Tensor, np.ndarray or
+    sitk.Image.
+    :param p: Probability for applying the transform.
+    :param min_it: Minimum number of iterations.
+    :param max_it: Minimum number of iterations.
+    :return: Eroded or dilated image in the same image type.
+    """
+    if np.random.rand() > p:  # do nothing
+        return inp_img
 
-        return sample
+    is_tensor = is_array = False
+    if type(inp_img) == torch.Tensor:
+        is_tensor = True
+        img = inp_img.numpy()
+        img = sitk.GetImageFromArray(img)
+    elif type(inp_img) == np.ndarray:
+        is_array = True
+        img = sitk.GetImageFromArray(inp_img)
+
+    out_img = np.random.choice([dilate])(img)
+    # out_img = np.random.choice([erode, dilate])(img) TODO FIX (PREVENT ERODING ALL)
+
+    if is_array:
+        return sitk.GetArrayFromImage(out_img)
+    elif is_tensor:
+        return torch.tensor(sitk.GetArrayFromImage(out_img))
+    else:
+        return out_img
 
 
-def flap_rec_transform(sample):
-    sample['image'], sample['target'] = skull_random_hole(
-        sample['image'], prob=.8, return_extracted=True)
-    sample['image'] = SaltAndPepper(sample['image'],
-                                    noise_probability=.01,
-                                    noise_density=.05)
-    # sample['target'] = torch.tensor(sample['target'], dtype=torch.float32)
-    sample['target'] = sample['target'].clone().detach().float()  # TODO gpuvar
-    sample['image'] = torch.FloatTensor(sample['image'])
-    sample['target'] = utils.one_hot_encoding(sample['target']).squeeze(
-        0)  # Encode the target
 
-    return sample
+flap_rec_transform = transforms.Compose([SkullRandomHole(double_output=True),
+                                         SaltAndPepper(p=.5,
+                                                       noise_density=.05),
+                                         ])
+
+
+# class FlapRecTransform:
+#     def __new__(cls, img=None):
+#         if img is not None:
+#             return cls.apply_transform(img)
+#
+#     def apply_transform(self, sample):
+#         sample['image'], sample['target'] = skull_random_hole(
+#             sample['image'], prob=0.8, return_extracted=True)
+#         sample['image'] = SaltAndPepper(sample['image'],
+#                                         p=.01,
+#                                         noise_density=.05)
+#         sample['target'] = torch.FloatTensor(sample['target'])
+#         sample['image'] = torch.FloatTensor(sample['image'])
+#         sample['target'] = utils.one_hot_encoding(
+#             sample['target'])  # Encode the target
+#         sample['image'] = sample['image'].unsqueeze(
+#             1)  # Add the channel dimension
+#
+#         return sample
+
+
+# def flap_rec_transform(sample):
+#     sample['image'], sample['target'] = skull_random_hole(
+#         sample['image'], prob=.8, return_extracted=True)
+#     sample['image'] = SaltAndPepper(sample['image'],
+#                                     p=.01,
+#                                     noise_density=.05)
+#     # sample['target'] = torch.tensor(sample['target'], dtype=torch.float32)
+#     sample['target'] = sample['target'].clone().detach().float()  # TODO gpuvar
+#     sample['image'] = torch.FloatTensor(sample['image'])
+#     sample['target'] = utils.one_hot_encoding(sample['target']).squeeze(
+#         0)  # Encode the target
+#
+#     return sample
 
 
 def cranioplasty_transform(sample, return_full=False):
@@ -179,7 +211,7 @@ def cranioplasty_transform(sample, return_full=False):
 
     # SALT AND PEPPER NOISE
     incomp_skull = SaltAndPepper(incomp_skull,
-                                 noise_probability=1,
+                                 p=1,
                                  noise_density=.05)
     sample['image'] = torch.FloatTensor(incomp_skull).unsqueeze(0)  # Channel
     if return_full:
@@ -200,7 +232,7 @@ def salt_and_pepper_ae(sample):
     if 'target' not in sample:
         sample['target'] = sample['image'].clone()
     sample['image'] = SaltAndPepper(sample['image'],
-                                    noise_probability=.8,
+                                    p=.8,
                                     noise_density=.3)
     sample['image'] = torch.from_numpy(sample['image']).float()
     return sample
@@ -242,11 +274,14 @@ def random_blank_patch(image, prob=1, return_extracted=False, p_type="random",
                 else p_type
             )
             if p_type == "sphere":
-                shape_np = shape_3d(center, size, image_size, shape="sphere")
+                shape_np = utils.shape_3d(center, size, image_size,
+                                          shape="sphere")
             elif p_type == "box":
-                shape_np = shape_3d(center, size, image_size, shape="box")
+                shape_np = utils.shape_3d(center, size, image_size,
+                                          shape="box")
             else:
-                shape_np = shape_3d(center, size, image_size, shape="flap")
+                shape_np = utils.shape_3d(center, size, image_size,
+                                          shape="flap")
 
             # Mask the image
             masked_out = np.logical_and(image, shape_np).astype(
@@ -342,34 +377,3 @@ def dilate(sitk_img, times=1):
     return sitk_img
 
 
-def erode_dilate(inp_img, p=1):
-    """ Apply an image erosion/dilation with a probability of application p.
-
-    :param inp_img: Input image. It could be a torch.Tensor, np.ndarray or
-    sitk.Image.
-    :param p: Probability for applying the transform.
-    :param min_it: Minimum number of iterations.
-    :param max_it: Minimum number of iterations.
-    :return: Eroded or dilated image in the same image type.
-    """
-    if np.random.rand() > p:  # do nothing
-        return inp_img
-
-    is_tensor = is_array = False
-    if type(inp_img) == torch.Tensor:
-        is_tensor = True
-        img = inp_img.numpy()
-        img = sitk.GetImageFromArray(img)
-    elif type(inp_img) == np.ndarray:
-        is_array = True
-        img = sitk.GetImageFromArray(inp_img)
-
-    out_img = np.random.choice([dilate])(img)
-    # out_img = np.random.choice([erode, dilate])(img) TODO FIX (PREVENT ERODING ALL)
-
-    if is_array:
-        return sitk.GetArrayFromImage(out_img)
-    elif is_tensor:
-        return torch.tensor(sitk.GetArrayFromImage(out_img))
-    else:
-        return out_img

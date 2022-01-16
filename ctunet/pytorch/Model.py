@@ -5,6 +5,7 @@
 #   Full Text: https://github.com/vfmatzkin/ctunet/blob/main/LICENSE
 
 """ ctunet trainer class."""
+import os.path
 import sys
 from collections import OrderedDict
 from shutil import copyfile
@@ -127,6 +128,7 @@ class Model:
         self.load_datasets()  # Load the datasets provided in the csv files
 
         self.current_epoch = self.current_train_iteration = 0
+        self.best_model = {'epoch': 1, 'value': None}
 
         self.pt_loss = []  # Losses used by PyTorch
 
@@ -246,14 +248,14 @@ class Model:
 
             autosave_now = (n_epoch % self.params["autosave_epochs"]) == 0
             if self.params["train_flag"] and autosave_now:  # Save epoch chkp.
-                self.save_main_model(self.cfg_path, n_epoch, True)
+                self.save_main_model(self.cfg_path, True)
                 if self.params["test_flag"]:
                     self.test()  # Predict after saving the checkpoint.
 
-            # Update the model on each epoch
+            # Update the model if it's better than previously saved (in val)
             self.save_main_model()
 
-    def save_main_model(self, cfg_file=None, epoch=-1, save_checkpoint=False):
+    def save_main_model(self, cfg_file=None, save_checkpoint=False):
         """ Save the model being trained.
 
         This function can save also the checkpoints in a subfolder with that
@@ -261,7 +263,6 @@ class Model:
 
         :param cfg_file: Configuration file, that will be saved in the first 
         epoch.
-        :param epoch: Trained epochs of the model.
         :param save_checkpoint: The method is called for saving a separate.
         checkpoint (training continues).
         :return:
@@ -269,17 +270,17 @@ class Model:
         path = self.params["model_path"]
         dir_m, fname = os.path.split(path)
         utils.makedir(dir_m)  # Check if output pred_folder exists
-        torch.save(self.models["main"].state_dict(), path)  # Overwrite
+        if self.current_epoch == self.best_model['epoch']:
+            torch.save(self.models["main"].state_dict(), path)  # Overwrite
 
         # Save the model parameters alongside the model if is first epoch
-        if cfg_file and epoch == 1:
+        if cfg_file and self.current_epoch == 1:
             copyfile(cfg_file, path.replace(".pt", "_params.ini"))
 
         if save_checkpoint:
             dir_chk = os.path.join(dir_m, 'checkpoints')
-            chk_p = os.path.join(dir_chk,
-                                 fname.replace(".pt",
-                                               "_ep" + str(epoch) + ".pt"))
+            new_suffx = "_ep" + str(self.current_epoch) + ".pt"
+            chk_p = os.path.join(dir_chk, fname.replace(".pt", new_suffx))
             utils.makedir(dir_chk)
             torch.save(self.models["main"].state_dict(), chk_p)
             print("Checkpoint saved ({})".format(save_checkpoint))
@@ -358,8 +359,19 @@ class Model:
                     self.pt_loss.backward()
                     self.params["optimizer"].step()
                     # self.params["optimizer"].zero_grad()
+                    if 'scheduler' in self.params and \
+                            self.params['scheduler'] is not None:
+                        self.params['scheduler'].step(self.pt_loss)
+
                     for param in self.models["main"].parameters():
                         param.grad = None
+                else:  # validation
+                    if self.current_epoch == 1 or \
+                            float(self.pt_loss) < self.best_model['value']:
+                        print("New best model found. Overwriting saved model.")
+                        self.best_model['value'] = float(self.pt_loss)
+                        self.best_model['epoch'] = self.current_epoch
+
             elif phase == "test":
                 self.out_paths = self.write_predictions(model_out,
                                                         sample["filepath"],
@@ -437,6 +449,13 @@ class Model:
         :param model_path: Model path.
         :return: Loaded model (from a class that inherits from nn.Module).
         """
+        cond = self.params['train_flag'] is False and \
+               self.params['test_flag'] is True and \
+               self.params['resume_model'] is not '' and \
+               not os.path.exists(model_path)
+        if cond:
+            model_path = self.params['resume_model']
+            print("using 'resume_model' trained model for predicting..")
         loaded = torch.load(os.path.expanduser(model_path),
                             map_location=str(self.params["device"]),
                             )
@@ -488,6 +507,13 @@ class Model:
         """
         # Configure the optimizer
         if self.params["optimizer"] == "adam":
+            self.params["optimizer"] = optim.Adam(
+                self.models["main"].parameters(),
+                lr=self.params["learning_rate"],
+                weight_decay=self.params["weight_decay"],
+                amsgrad=True,
+            )
+        if self.params["optimizer"] == "adamw":
             self.params["optimizer"] = optim.AdamW(
                 self.models["main"].parameters(),
                 lr=self.params["learning_rate"],
@@ -508,6 +534,11 @@ class Model:
                 momentum=self.params["momentum"],
                 weight_decay=self.params["weight_decay"],
             )
+
+        # Configure Scheduler
+        if 'scheduler' in self.params:
+            self.params["scheduler"] = optim.lr_scheduler.ReduceLROnPlateau(
+                self.params["optimizer"])
 
 
 def load_ini_file(ini_file: str):
