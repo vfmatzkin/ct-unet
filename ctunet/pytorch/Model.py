@@ -241,7 +241,15 @@ class Model:
             self.update_plots_tensorboard_avg("train", n_epoch)
 
             self.forward_pass("val", self.data["validation_dataloader"])
-            self.update_plots_tensorboard_avg("val", n_epoch)
+            ep_loss_v = self.update_plots_tensorboard_avg("val", n_epoch)
+
+            if self.current_epoch == 1 or ep_loss_v < self.best_model['value']:
+                if self.best_model['value']:
+                    print("New best model found. Overwriting saved model. "
+                          f"(new best val loss: {ep_loss_v:.5f} vs "
+                          f"{self.best_model['value']:.5f})")
+                self.best_model['value'] = ep_loss_v
+                self.best_model['epoch'] = self.current_epoch
 
             # Calculate remaining time (for display)
             utils.toc_eps(ep_time, n_epoch, self.params["n_epochs"])
@@ -342,7 +350,6 @@ class Model:
 
             if phase == "train":
                 input_img.requires_grad_()
-            #     target.requires_grad_()
 
             # I do this here because I need an img sample for getting FLOPS n.
             # if c_op and (phase == "train" and self.current_epoch == 1 and self.params[
@@ -365,12 +372,6 @@ class Model:
 
                     for param in self.models["main"].parameters():
                         param.grad = None
-                else:  # validation
-                    if self.current_epoch == 1 or \
-                            float(self.pt_loss) < self.best_model['value']:
-                        print("New best model found. Overwriting saved model.")
-                        self.best_model['value'] = float(self.pt_loss)
-                        self.best_model['epoch'] = self.current_epoch
 
             elif phase == "test":
                 self.out_paths = self.write_predictions(model_out,
@@ -388,6 +389,9 @@ class Model:
         :param print_to_console: Print to console the output
         :return:
         """
+        ep_loss = None
+        if 'epoch_loss' in self.losses_and_metrics:
+            ep_loss = np.mean(self.losses_and_metrics['epoch_loss'])
         for key in self.losses_and_metrics.keys():
             avg = sum(self.losses_and_metrics[key]) / len(
                 self.losses_and_metrics[key]
@@ -398,6 +402,7 @@ class Model:
             self.losses_and_metrics[key] = []
             if print_to_console:
                 print("{} {} average: {}.".format(type, i, float(avg)))
+        return ep_loss
 
     def resolve_out_folder(self):
         """ Create workspace pred_folder if not exists and set model path.
@@ -451,7 +456,7 @@ class Model:
         """
         cond = self.params['train_flag'] is False and \
                self.params['test_flag'] is True and \
-               self.params['resume_model'] is not '' and \
+               self.params['resume_model'] != '' and \
                not os.path.exists(model_path)
         if cond:
             model_path = self.params['resume_model']
